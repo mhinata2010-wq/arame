@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="theme-color" content="#10131b"><meta name="description" content="毎朝7:00、起床確認まで通知するブラウザアラーム。">
+<meta name="theme-color" content="#10131b"><meta name="description" content="毎朝6:55に蚊の羽音、6:56に警告音へ切り替わるブラウザアラーム。">
 <title>ARAME | 7:00 WAKE UP</title>
 <style>
 :root{color-scheme:dark;font-family:Inter,-apple-system,BlinkMacSystemFont,"Hiragino Kaku Gothic ProN","Noto Sans JP",sans-serif;background:#10131b;color:#f5f7fa}
@@ -28,22 +28,22 @@ button{font:inherit;cursor:pointer;border:0;border-radius:13px;padding:15px 19px
 <header class="top"><div class="brand">ARAME<span style="color:#72b2ff">.</span></div><div class="badge">WAKE UP SYSTEM</div></header>
 <section aria-label="現在時刻"><h1>明日の自分を、起こす。</h1><div id="clock" class="clock" aria-live="off">--:--</div><p class="subtitle" id="date">現在時刻を取得しています</p></section>
 <section class="panel" aria-label="アラームの設定">
- <div class="row"><div><p class="eyebrow">DAILY ALARM</p><div class="time">07:00 <span style="font-size:15px;color:#9eb0c8">AM</span></div><p class="sub">毎朝7時・この端末の時刻</p></div><div id="status" class="status" role="status"><span id="dot" class="dot"></span><span id="statusText">停止中</span></div></div>
- <div class="sound-picker"><label for="soundMode">アラーム音</label><select id="soundMode"><option value="mosquito">蚊の羽音・リアル版（約511Hz）</option><option value="classic">従来の警告音</option></select><p>6つの倍音と左右の移動（対応端末のみ）で、蚊の飛行音を近似します。音量は控えめから試してください。</p></div>
+ <div class="row"><div><p class="eyebrow">DAILY ALARM</p><div class="time">06:55 <span style="font-size:15px;color:#9eb0c8">AM</span></div><p class="sub">6:55 蚊の羽音 → 6:56 警告音</p></div><div id="status" class="status" role="status"><span id="dot" class="dot"></span><span id="statusText">停止中</span></div></div>
+ <div class="sound-picker"><label for="soundMode">音声テストの音色</label><select id="soundMode"><option value="mosquito">蚊の羽音・リアル版（約511Hz）</option><option value="classic">従来の警告音</option></select><p>本番は6:55に蚊の羽音、6:56に従来の警告音へ自動切替。ここでは試聴音だけ選べます。</p></div>
  <button id="toggle" class="primary">アラームを有効にする</button>
  <div class="actions"><button id="test" class="secondary">♪ 音を5秒テスト</button><button id="wake" class="secondary">画面のスリープを防ぐ</button></div>
  <p id="message" class="sub" role="status" aria-live="polite" style="margin-top:18px">初回は音のテストで再生可能なことを確認してください。</p>
 </section>
 <div class="note"><p><strong>重要：このWebだけでは起床を保証できません。</strong></p><p>7:00までこのタブを開き、端末を電源に接続し、音量・ミュート・スピーカー出力を確認してください。端末やタブのスリープ、ブラウザの制限、音量ゼロでは鳴らない場合があります。スマホ・PC標準のアラームも必ず併用してください。</p><p>大きすぎる音は聴覚を傷めます。テストは小さい音量から始め、端末の音量を適切に調整してください。</p></div>
-<footer class="footer">ARAME • 07:00 EVERY DAY • LOCAL ONLY</footer>
+<footer class="footer">ARAME • 06:55 → 06:56 • LOCAL ONLY</footer>
 </main>
-<div id="overlay" class="overlay" role="alertdialog" aria-modal="true" aria-labelledby="ringTitle" aria-describedby="ringDesc"><div><p>IT'S TIME TO WAKE UP</p><h2 id="ringTitle">07:00</h2><p id="ringDesc">朝です。起きたらアラームを止めてください。</p><button id="stop" class="stop">起きた！ アラームを止める</button></div></div>
+<div id="overlay" class="overlay" role="alertdialog" aria-modal="true" aria-labelledby="ringTitle" aria-describedby="ringDesc"><div><p>IT'S TIME TO WAKE UP</p><h2 id="ringTitle">06:55</h2><p id="ringDesc">朝です。起きたらアラームを止めてください。</p><button id="stop" class="stop">起きた！ アラームを止める</button></div></div>
 <script>
 (()=>{
 "use strict";
 const $=id=>document.getElementById(id);
-const KEY="arame.enabled.v1", SOUND_KEY="arame.sound.v1";
-let enabled=localStorage.getItem(KEY)==="true",soundMode=localStorage.getItem(SOUND_KEY)==="classic"?"classic":"mosquito",audio=null,oscillators=[],toneTimer=null,ringing=false,testing=false,testTimer=null,wakeLock=null,lastTriggered="";
+const KEY="arame.enabled.v1", SOUND_KEY="arame.sound.v1", DISMISSED_KEY="arame.dismissed.v2";
+let enabled=localStorage.getItem(KEY)==="true",soundMode=localStorage.getItem(SOUND_KEY)==="classic"?"classic":"mosquito",audio=null,oscillators=[],toneTimer=null,ringing=false,testing=false,testTimer=null,wakeLock=null,ringStage=null;
 const pad=n=>String(n).padStart(2,"0");
 const dateKey=d=>[d.getFullYear(),pad(d.getMonth()+1),pad(d.getDate())].join("-");
 function announce(msg){$("message").textContent=msg}
@@ -52,8 +52,10 @@ function render(){
  $("toggle").textContent=enabled?"アラームを解除する":"アラームを有効にする";
  $("toggle").classList.toggle("off",enabled);
  $("dot").className="dot"+(ringing?" ring":enabled?" on":"");
- $("statusText").textContent=ringing?"鳴動中":enabled?"待機中":"停止中";
+ $("statusText").textContent=ringing?(ringStage==="classic"?"警告音で鳴動中":"蚊の羽音で鳴動中"):enabled?"待機中":"停止中";
  $("overlay").classList.toggle("visible",ringing);
+ $("ringTitle").textContent=ringStage==="classic"?"06:56":"06:55";
+ $("ringDesc").textContent=ringStage==="classic"?"警告音に切り替わりました。起きたら停止してください。":"蚊の羽音で起床を促しています。06:56に警告音へ切り替わります。";
  $("wake").textContent=wakeLock?"画面スリープ防止：有効":"画面のスリープを防ぐ";
 }
 async function initAudio(){
@@ -68,10 +70,10 @@ function stopSound(){
  for(const node of oscillators){try{node.stop()}catch(e){}try{node.disconnect()}catch(e){}}
  oscillators=[];
 }
-function sound(){
+function sound(mode=soundMode){
  stopSound();
  if(!audio||audio.state!=="running"){announce("音声がブロックされています。音声テストを実行してください。");return}
- if(soundMode==="mosquito"){mosquitoSound();return}
+ if(mode==="mosquito"){mosquitoSound();return}
  classicSound();
 }
 function mosquitoSound(){
@@ -136,30 +138,44 @@ async function acquireWakeLock(){
  catch(e){announce("スリープ防止ができません："+e.message)}
 }
 function stopAlarm(){
- ringing=false;stopSound();render();announce("起床確認しました。次のアラームは明日7:00です。");
+ localStorage.setItem(DISMISSED_KEY,dateKey(new Date()));
+ ringing=false;ringStage=null;stopSound();render();
+ announce("起床を確認しました。次は明朝06:55です。");
 }
-async function ring(){
- if(ringing)return;stopTest();ringing=true;lastTriggered=dateKey(new Date());render();
- try{await initAudio();sound()}catch(e){announce("音を再生できません："+e.message+"。端末の標準アラームを確認してください。")}
+async function ring(stage){
+ if(ringing||localStorage.getItem(DISMISSED_KEY)===dateKey(new Date()))return;
+ stopTest();ringing=true;ringStage=stage;render();
+ try{await initAudio();if(ringing&&ringStage===stage)sound(stage)}
+ catch(e){announce("音を再生できません："+e.message+"。端末標準のアラームを確認してください。")}
  $("stop").focus();
+}
+function switchToClassic(){
+ if(!ringing||ringStage==="classic")return;
+ ringStage="classic";render();
+ if(audio&&audio.state==="running")sound("classic");
+ else announce("06:56になりました。警告音の再生がブロックされています。");
 }
 function tick(){
  const now=new Date();
  $("clock").textContent=pad(now.getHours())+":"+pad(now.getMinutes());
  $("date").textContent=new Intl.DateTimeFormat("ja-JP",{year:"numeric",month:"long",day:"numeric",weekday:"long"}).format(now);
- if(enabled&&!ringing&&now.getHours()===7&&now.getMinutes()===0&&lastTriggered!==dateKey(now))ring();
+ if(!enabled||localStorage.getItem(DISMISSED_KEY)===dateKey(now))return;
+ const minute=now.getHours()*60+now.getMinutes();
+ const stageOne=6*60+55,stageTwo=6*60+56;
+ if(!ringing&&minute>=stageOne&&minute<7*60){ring(minute>=stageTwo?"classic":"mosquito");return}
+ if(ringing&&minute>=stageTwo&&ringStage==="mosquito")switchToClassic();
 }
 $("toggle").addEventListener("click",async()=>{
  if(enabled){enabled=false;localStorage.setItem(KEY,"false");if(ringing)stopAlarm();announce("アラームを解除しました。");render();return}
- try{await initAudio();enabled=true;localStorage.setItem(KEY,"true");announce("7:00に設定しました。タブを開いたまま、音声テストと端末の予備アラームを確認してください。");render();tick()}
+ try{await initAudio();enabled=true;localStorage.setItem(KEY,"true");announce("06:55に蚊の羽音、06:56に警告音を設定しました。標準アラームも確認してください。");render();tick()}
  catch(e){announce("アラームを有効にできません："+e.message)}
 });
 $("soundMode").addEventListener("change",event=>{
  soundMode=event.target.value==="classic"?"classic":"mosquito";
  localStorage.setItem(SOUND_KEY,soundMode);
  if(testing){stopTest()}
- if(ringing){sound()}
- announce("アラーム音を「"+(soundMode==="mosquito"?"蚊の羽音":"従来の警告音")+"」に変更しました。音声テストで確認してください。");
+ if(ringing){sound(ringStage)}
+ announce("試聴音を変更しました。本番は06:55の蚊の羽音から始まります。");
 });
 $("test").addEventListener("click",test);
 $("stop").addEventListener("click",stopAlarm);
