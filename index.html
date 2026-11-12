@@ -29,7 +29,7 @@ button{font:inherit;cursor:pointer;border:0;border-radius:13px;padding:15px 19px
 <section aria-label="現在時刻"><h1>明日の自分を、起こす。</h1><div id="clock" class="clock" aria-live="off">--:--</div><p class="subtitle" id="date">現在時刻を取得しています</p></section>
 <section class="panel" aria-label="アラームの設定">
  <div class="row"><div><p class="eyebrow">DAILY ALARM</p><div class="time">07:00 <span style="font-size:15px;color:#9eb0c8">AM</span></div><p class="sub">毎朝7時・この端末の時刻</p></div><div id="status" class="status" role="status"><span id="dot" class="dot"></span><span id="statusText">停止中</span></div></div>
- <div class="sound-picker"><label for="soundMode">アラーム音</label><select id="soundMode"><option value="mosquito">蚊の羽音（約500Hz）</option><option value="classic">従来の警告音</option></select><p>蚊の羽音は研究値を参考に合成しています。音量は控えめから試してください。</p></div>
+ <div class="sound-picker"><label for="soundMode">アラーム音</label><select id="soundMode"><option value="mosquito">蚊の羽音・リアル版（約511Hz）</option><option value="classic">従来の警告音</option></select><p>6つの倍音と左右の移動（対応端末のみ）で、蚊の飛行音を近似します。音量は控えめから試してください。</p></div>
  <button id="toggle" class="primary">アラームを有効にする</button>
  <div class="actions"><button id="test" class="secondary">♪ 音を5秒テスト</button><button id="wake" class="secondary">画面のスリープを防ぐ</button></div>
  <p id="message" class="sub" role="status" aria-live="polite" style="margin-top:18px">初回は音のテストで再生可能なことを確認してください。</p>
@@ -75,28 +75,43 @@ function sound(){
  classicSound();
 }
 function mosquitoSound(){
- // Female Aedes albopictus flight tone: approximately 500 Hz (reference in README).
- // This is synthetic approximation, not a mosquito recording or a 17 kHz 'mosquito tone'.
- const master=audio.createGain();master.gain.value=0.0001;master.connect(audio.destination);
- const tones=[{ratio:1,level:.115},{ratio:2,level:.035},{ratio:3,level:.013}];
- for(const tone of tones){
-  const osc=audio.createOscillator(),volume=audio.createGain();
-  osc.type="sine";osc.frequency.value=500*tone.ratio;volume.gain.value=tone.level;
-  osc.connect(volume);volume.connect(master);osc.start();oscillators.push(osc);
- }
- const startAt=audio.currentTime;let frame=0;
- const update=()=>{
-  const now=audio.currentTime;
-  const t=now-startAt;
-  // Slow fly-by: proximity moves in and out; low-rate flutter and pitch jitter.
-  const proximity=.35+.65*(.5+.5*Math.sin(2*Math.PI*.23*t-.9));
-  const flutter=.88+.12*Math.sin(2*Math.PI*12*t);
-  master.gain.setTargetAtTime(.58*proximity*flutter,now,.018);
-  const base=500+18*Math.sin(2*Math.PI*.7*t)+8*Math.sin(2*Math.PI*1.8*t);
-  oscillators.forEach((osc,i)=>osc.frequency.setTargetAtTime(base*(i+1),now,.025));
-  frame++;
+ // Aedes aegypti female flight tone (~511 Hz mean): harmonics co-modulate.
+ // This is an approximate synthesis, not a real recording. Keep playback modest.
+ const output=audio.createGain();output.gain.value=0.0001;
+ const filter=audio.createBiquadFilter();filter.type="lowpass";filter.frequency.value=3500;filter.Q.value=.35;
+ const pan=typeof audio.createStereoPanner==="function"?audio.createStereoPanner():null;
+ if(pan){output.connect(filter);filter.connect(pan);pan.connect(audio.destination)}
+ else{output.connect(filter);filter.connect(audio.destination)}
+ const harmonics=[1,.37,.19,.11,.07,.04];
+ const voices=harmonics.map((amount,index)=>{
+  const oscillator=audio.createOscillator(),level=audio.createGain();
+  oscillator.type="sine";oscillator.frequency.value=511*(index+1);
+  level.gain.value=amount*.11;
+  oscillator.connect(level);level.connect(output);oscillator.start();
+  oscillators.push(oscillator);
+  return oscillator;
+ });
+ const start=audio.currentTime;
+ let drift=0,changeAt=0,target=0,seed=13;
+ // Deterministic slow drift, avoiding conspicuous periodic pitch sirens.
+ const random=()=>{seed=(1664525*seed+1013904223)>>>0;return seed/4294967296};
+ const move=()=>{
+  const now=audio.currentTime,t=now-start;
+  if(t>=changeAt){target=(random()-.5)*24;changeAt=t+.35+random()*.65}
+  drift+=.16*(target-drift);
+  const fundamental=511+drift+3*Math.sin(2*Math.PI*.41*t);
+  voices.forEach((osc,i)=>osc.frequency.setTargetAtTime(fundamental*(i+1),now,.035));
+  // Asymmetric fly-bys rather than a rigid beep-like pulse.
+  const path=Math.sin(2*Math.PI*.115*t+.45)+.25*Math.sin(2*Math.PI*.31*t);
+  const distance=.5+.5*Math.sin(2*Math.PI*.16*t-.6);
+  const near=Math.pow(Math.max(.04,distance),1.65);
+  const flutter=1+.055*Math.sin(2*Math.PI*13*t);
+  output.gain.setTargetAtTime(.16+.61*near*flutter,now,.035);
+  filter.frequency.setTargetAtTime(1500+2500*near,now,.09);
+  if(pan)pan.pan.setTargetAtTime(Math.max(-.8,Math.min(.8,path*.68)),now,.08);
  };
- update();toneTimer=setInterval(update,45);
+ move();
+ toneTimer=setInterval(move,55);
 }
 function classicSound(){
  const gain=audio.createGain();gain.gain.value=.0001;gain.connect(audio.destination);
