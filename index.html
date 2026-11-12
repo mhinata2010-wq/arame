@@ -14,6 +14,7 @@ h1{font-size:clamp(17px,3vw,21px);font-weight:500;color:#b9c1cf;margin:0;text-al
 .row{display:flex;justify-content:space-between;align-items:center;gap:15px}.eyebrow{text-transform:uppercase;letter-spacing:.16em;font-size:11px;font-weight:800;color:#94a7c7;margin:0 0 9px}.time{font-size:36px;font-weight:800;letter-spacing:-.06em}.sub{font-size:13px;color:#adb9cb;line-height:1.65;margin:6px 0}
 button{font:inherit;cursor:pointer;border:0;border-radius:13px;padding:15px 19px;font-weight:800;transition:filter .18s,transform .18s}button:hover{filter:brightness(1.12)}button:active{transform:scale(.98)}button:focus-visible{outline:3px solid #83b8ff;outline-offset:3px}
 .primary{background:#6aaaff;color:#091526;width:100%;margin-top:24px;font-size:16px}.primary.off{background:#313a49;color:#f1f5f9}.secondary{background:#283449;color:#dbeafe}.actions{display:flex;flex-wrap:wrap;gap:12px;margin-top:15px}.actions button{flex:1}
+.sound-picker{margin-top:20px;display:grid;gap:8px}.sound-picker label{font-size:13px;color:#cad6e7;font-weight:700}.sound-picker select{font:inherit;width:100%;padding:13px 15px;border-radius:12px;border:1px solid #52627c;background:#253247;color:#f7faff;cursor:pointer}.sound-picker select:focus-visible{outline:3px solid #83b8ff;outline-offset:3px}.sound-picker p{margin:0;font-size:12px;line-height:1.6;color:#a8b9d0}
 .status{display:flex;align-items:center;gap:9px;color:#b8c3d3;font-size:13px}.dot{background:#6b7280;width:8px;height:8px;border-radius:50%}.dot.on{background:#4ade80;box-shadow:0 0 14px #4ade80}.dot.ring{background:#fb923c}
 .note{border:1px solid #364152;border-radius:15px;padding:17px 18px;margin-top:20px;color:#b9c5d3;font-size:13px;line-height:1.8}.note strong{color:#f2f5fb}.note p{margin:0 0 8px}.note p:last-child{margin:0}
 .footer{text-align:center;color:#79889d;font-size:11px;margin-top:30px}
@@ -28,6 +29,7 @@ button{font:inherit;cursor:pointer;border:0;border-radius:13px;padding:15px 19px
 <section aria-label="現在時刻"><h1>明日の自分を、起こす。</h1><div id="clock" class="clock" aria-live="off">--:--</div><p class="subtitle" id="date">現在時刻を取得しています</p></section>
 <section class="panel" aria-label="アラームの設定">
  <div class="row"><div><p class="eyebrow">DAILY ALARM</p><div class="time">07:00 <span style="font-size:15px;color:#9eb0c8">AM</span></div><p class="sub">毎朝7時・この端末の時刻</p></div><div id="status" class="status" role="status"><span id="dot" class="dot"></span><span id="statusText">停止中</span></div></div>
+ <div class="sound-picker"><label for="soundMode">アラーム音</label><select id="soundMode"><option value="mosquito">蚊の羽音（約500Hz）</option><option value="classic">従来の警告音</option></select><p>蚊の羽音は研究値を参考に合成しています。音量は控えめから試してください。</p></div>
  <button id="toggle" class="primary">アラームを有効にする</button>
  <div class="actions"><button id="test" class="secondary">♪ 音を5秒テスト</button><button id="wake" class="secondary">画面のスリープを防ぐ</button></div>
  <p id="message" class="sub" role="status" aria-live="polite" style="margin-top:18px">初回は音のテストで再生可能なことを確認してください。</p>
@@ -40,12 +42,13 @@ button{font:inherit;cursor:pointer;border:0;border-radius:13px;padding:15px 19px
 (()=>{
 "use strict";
 const $=id=>document.getElementById(id);
-const KEY="arame.enabled.v1";
-let enabled=localStorage.getItem(KEY)==="true",audio=null,oscillators=[],toneTimer=null,ringing=false,testing=false,testTimer=null,wakeLock=null,lastTriggered="";
+const KEY="arame.enabled.v1", SOUND_KEY="arame.sound.v1";
+let enabled=localStorage.getItem(KEY)==="true",soundMode=localStorage.getItem(SOUND_KEY)==="classic"?"classic":"mosquito",audio=null,oscillators=[],toneTimer=null,ringing=false,testing=false,testTimer=null,wakeLock=null,lastTriggered="";
 const pad=n=>String(n).padStart(2,"0");
 const dateKey=d=>[d.getFullYear(),pad(d.getMonth()+1),pad(d.getDate())].join("-");
 function announce(msg){$("message").textContent=msg}
 function render(){
+ $("soundMode").value=soundMode;
  $("toggle").textContent=enabled?"アラームを解除する":"アラームを有効にする";
  $("toggle").classList.toggle("off",enabled);
  $("dot").className="dot"+(ringing?" ring":enabled?" on":"");
@@ -67,8 +70,36 @@ function stopSound(){
 }
 function sound(){
  stopSound();
- if(!audio||audio.state!=="running"){announce("音がブロックされています。ページを操作して音声テストをしてください。");return}
- const gain=audio.createGain();gain.gain.value=0.0001;gain.connect(audio.destination);
+ if(!audio||audio.state!=="running"){announce("音声がブロックされています。音声テストを実行してください。");return}
+ if(soundMode==="mosquito"){mosquitoSound();return}
+ classicSound();
+}
+function mosquitoSound(){
+ // Female Aedes albopictus flight tone: approximately 500 Hz (reference in README).
+ // This is synthetic approximation, not a mosquito recording or a 17 kHz 'mosquito tone'.
+ const master=audio.createGain();master.gain.value=0.0001;master.connect(audio.destination);
+ const tones=[{ratio:1,level:.115},{ratio:2,level:.035},{ratio:3,level:.013}];
+ for(const tone of tones){
+  const osc=audio.createOscillator(),volume=audio.createGain();
+  osc.type="sine";osc.frequency.value=500*tone.ratio;volume.gain.value=tone.level;
+  osc.connect(volume);volume.connect(master);osc.start();oscillators.push(osc);
+ }
+ const startAt=audio.currentTime;let frame=0;
+ const update=()=>{
+  const now=audio.currentTime;
+  const t=now-startAt;
+  // Slow fly-by: proximity moves in and out; low-rate flutter and pitch jitter.
+  const proximity=.35+.65*(.5+.5*Math.sin(2*Math.PI*.23*t-.9));
+  const flutter=.88+.12*Math.sin(2*Math.PI*12*t);
+  master.gain.setTargetAtTime(.58*proximity*flutter,now,.018);
+  const base=500+18*Math.sin(2*Math.PI*.7*t)+8*Math.sin(2*Math.PI*1.8*t);
+  oscillators.forEach((osc,i)=>osc.frequency.setTargetAtTime(base*(i+1),now,.025));
+  frame++;
+ };
+ update();toneTimer=setInterval(update,45);
+}
+function classicSound(){
+ const gain=audio.createGain();gain.gain.value=.0001;gain.connect(audio.destination);
  const a=audio.createOscillator(),b=audio.createOscillator();
  a.type="square";b.type="sawtooth";a.frequency.value=740;b.frequency.value=980;
  const g1=audio.createGain(),g2=audio.createGain();g1.gain.value=.12;g2.gain.value=.06;
@@ -76,7 +107,6 @@ function sound(){
  oscillators=[a,b];let phase=0;
  const pulse=()=>{const now=audio.currentTime;gain.gain.cancelScheduledValues(now);gain.gain.setTargetAtTime(phase%2===0?.65:.001,now,.018);a.frequency.setValueAtTime(phase%4<2?740:880,now);b.frequency.setValueAtTime(phase%4<2?980:1100,now);phase++};
  pulse();toneTimer=setInterval(pulse,320);
- // The sound is intentionally capped. Device speakers determine perceived loudness.
 }
 function stopTest(){if(testTimer){clearTimeout(testTimer);testTimer=null}if(testing){testing=false;stopSound();$("test").textContent="♪ 音を5秒テスト"}}
 async function test(){
@@ -108,6 +138,13 @@ $("toggle").addEventListener("click",async()=>{
  if(enabled){enabled=false;localStorage.setItem(KEY,"false");if(ringing)stopAlarm();announce("アラームを解除しました。");render();return}
  try{await initAudio();enabled=true;localStorage.setItem(KEY,"true");announce("7:00に設定しました。タブを開いたまま、音声テストと端末の予備アラームを確認してください。");render();tick()}
  catch(e){announce("アラームを有効にできません："+e.message)}
+});
+$("soundMode").addEventListener("change",event=>{
+ soundMode=event.target.value==="classic"?"classic":"mosquito";
+ localStorage.setItem(SOUND_KEY,soundMode);
+ if(testing){stopTest()}
+ if(ringing){sound()}
+ announce("アラーム音を「"+(soundMode==="mosquito"?"蚊の羽音":"従来の警告音")+"」に変更しました。音声テストで確認してください。");
 });
 $("test").addEventListener("click",test);
 $("stop").addEventListener("click",stopAlarm);
