@@ -26,6 +26,14 @@
 - 参考: [2025年の羽ばたき周波数測定研究](https://pmc.ncbi.nlm.nih.gov/articles/PMC12049413/) / [HumBugの研究](https://besjournals.onlinelibrary.wiley.com/doi/10.1111/2041-210X.13663)
 - この合成音だけで起床できる保証はありません。
 
+## 羽音リアル版の音響設計
+- ネッタイシマカ（Aedes aegypti）雌の基本周波数は実測平均511±46Hz（対象11匹）。基音511Hzと弱い6本の倍音を同期して変化させる。蚊の種類や個体によって異なり、厳密な個体再現ではない。
+- 不規則で緩やかな周波数揺らぎと、距離の変化による非対称な音量増減を実装。ステレオ環境では左右を移動する。距離に応じて高周波成分も調整する。
+- 一部の変調値はUX向けの設計値であり実測の生データではない。録音音源ではなく、自然な羽音の近似合成。
+- [Arthur et al., 2014, JASA（飛行音の基本周波数・倍音・距離減衰）](https://pmc.ncbi.nlm.nih.gov/articles/PMC3985972/)
+- [Mukundarajan et al., 2017（スマートフォンによる飛行音の分析）](https://pmc.ncbi.nlm.nih.gov/articles/PMC5663474/)
+- ステレオ定位はスピーカーでも機種差があり、ヘッドホンの大音量使用を推奨しない。聴覚保護のため音量は小さく始める。
+
 ## 構成
 
 - `index.html`: HTML/CSS/JavaScript。Web Audio API、Screen Wake Lock API、localStorage。
